@@ -63,3 +63,11 @@ This is a pygame-based Ultimate Tic Tac Toe game (tic tac toe where each cell co
 - AI move has intentional delay (500ms) for UX
 - Window is resizable with dynamic dimension recalculation
 - Dark mode toggle via `set_theme()` updates global color constants
+
+# Conda Environment
+
+Use conda to manage dependencies:
+
+```bash
+conda activate ticktactoe
+```

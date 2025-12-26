@@ -35,3 +35,11 @@ Dependencies are Python + `pygame` to run the game; `numpy` is required only for
 ## Assets & Configuration Notes
 - If you change audio files, keep the `.wav` format and place them in `sounds/`.
 - Avoid committing generated artifacts outside `sounds/` unless they are required at runtime.
+
+# Conda Environment
+
+Use conda to manage dependencies:
+
+```bash
+conda activate ticktactoe
+```

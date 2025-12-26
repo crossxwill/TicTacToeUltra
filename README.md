@@ -4,7 +4,14 @@ A pygame-based Ultimate Tic Tac Toe game where each cell contains another tic ta
 
 ## Installation
 
-### 1. Install Miniforge
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/crossxwill/TicTacToeUltra
+cd TicTacToeUltra
+```
+
+### 2. Install Miniforge
 
 #### Windows
 
@@ -31,19 +38,19 @@ bash Miniforge3-MacOSX-$(uname -m).sh
 
 Follow the prompts and restart your terminal when complete.
 
-### 2. Create the Conda Environment
+### 3. Create the Conda Environment
 
 ```bash
 conda env create -f environment.yml
 ```
 
-### 3. Activate the Environment
+### 4. Activate the Environment
 
 ```bash
 conda activate tictactoe
 ```
 
-### 4. Run the Game
+### 5. Run the Game
 
 ```bash
 python ultimate_tictactoe.py

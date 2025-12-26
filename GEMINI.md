@@ -89,3 +89,11 @@ To update the `environment.yml` after adding new dependencies:
 ```bash
 conda env export -n tictactoe --from-history > environment.yml
 ```
+
+# Conda Environment
+
+Use conda to manage dependencies:
+
+```bash
+conda activate ticktactoe
+```
