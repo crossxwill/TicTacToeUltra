@@ -8,9 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 python ultimate_tictactoe.py
 ```
 
-Requires pygame and numpy:
+Requires pygame, numpy, and scipy:
 ```bash
-pip install pygame numpy
+uv pip install pygame numpy scipy
+```
+
+Or using conda environment:
+```bash
+conda env create -f environment.yml
+conda activate tictactoe
 ```
 
 ## Regenerating Sound Effects
@@ -40,7 +46,7 @@ This is a pygame-based Ultimate Tic Tac Toe game (tic tac toe where each cell co
 
 - **SplashScreen/ModeSelectScreen/DifficultySelectScreen/TutorialScreen**: Menu screens with their own event loops.
 
-- **TutorialScreen**: Interactive tutorial with 6 steps (INTRO, BASIC_MOVE, CONSTRAINT, FREE_MOVE, PRACTICE, COMPLETE). Uses a demo board where players can practice moves with guided highlights.
+- **TutorialScreen**: Interactive tutorial with 14 steps (WELCOME through COMPLETE). Uses a demo board where players can practice moves with guided highlights.
 
 - **ConfettiSystem/ConfettiParticle**: Particle effects for wins.
 
@@ -56,3 +62,4 @@ This is a pygame-based Ultimate Tic Tac Toe game (tic tac toe where each cell co
 - Rendering is separate from game logic
 - AI move has intentional delay (500ms) for UX
 - Window is resizable with dynamic dimension recalculation
+- Dark mode toggle via `set_theme()` updates global color constants

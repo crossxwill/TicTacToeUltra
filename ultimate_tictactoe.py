@@ -17,9 +17,36 @@ import os
 import random
 import math
 import numpy as np
+import ctypes
+import platform
 from typing import Optional, Tuple, List
 from enum import Enum
 
+
+def get_display_scale_factor() -> float:
+    """Get the display scale factor for DPI awareness."""
+    if platform.system() == 'Windows':
+        try:
+            # Enable DPI awareness on Windows
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except (AttributeError, OSError):
+                pass
+
+        try:
+            # Get the scale factor
+            scaleFactor = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100
+            return scaleFactor
+        except (AttributeError, OSError):
+            pass
+
+    return 1.0
+
+
+# Get display scale factor before pygame init
+DISPLAY_SCALE = get_display_scale_factor()
 
 
 class GameMode(Enum):
@@ -40,14 +67,15 @@ class TutorialStep(Enum):
     WIN_CONDITION = 2        # Win 3 boards in a row
     FIRST_MOVE = 3           # Make first move (guided)
     OPPONENT_RESPONSE = 4    # Watch opponent play (auto)
-    CONSTRAINT_INTRO = 5     # Explain the constraint rule
-    CONSTRAINT_PRACTICE = 6  # Practice constraint (guided)
-    SEE_CONSTRAINT = 7       # See effect of your move
-    WIN_MINI_BOARD = 8       # Win a mini-board (guided)
-    FREE_MOVE_SETUP = 9      # Explain free move scenario
-    FREE_MOVE_RULE = 10      # Practice free move
-    PRACTICE_MODE = 11       # Free practice
-    COMPLETE = 12            # Tutorial complete
+    OPPONENT_MOVED = 5       # Show where O played
+    CONSTRAINT_RESULT = 6    # Show where O's move sent X
+    CONSTRAINT_PRACTICE = 7  # Practice constraint (guided)
+    SEE_CONSTRAINT = 8       # See effect of your move
+    WIN_MINI_BOARD = 9       # Win a mini-board (guided)
+    FREE_MOVE_SETUP = 10     # Explain free move scenario
+    FREE_MOVE_RULE = 11      # Practice free move
+    PRACTICE_MODE = 12       # Free practice
+    COMPLETE = 13            # Tutorial complete
 
 
 # Initialize pygame
@@ -57,18 +85,18 @@ pygame.mixer.init()
 # Theme Management
 IS_DARK_MODE = False
 
-# Static Colors (Constant)
-MENU_BACKGROUND = (44, 62, 80)
+# Static Colors (Constant) - Premium PS5-style palette
+MENU_BACKGROUND = (18, 18, 24)        # Deep charcoal
 RED = (231, 76, 60)
-BLUE = (52, 152, 219)
+BLUE = (66, 135, 245)                 # Refined blue
 GREEN = (46, 204, 113)
 ORANGE = (230, 126, 34)
 PURPLE = (155, 89, 182)
 YELLOW = (241, 196, 15)
-GOLD = (241, 196, 15)
-BUTTON_DEFAULT = (52, 152, 219)
-BUTTON_HOVER = (41, 128, 185)
-TEXT_LIGHT = (255, 255, 255)
+GOLD = (255, 203, 71)                 # Warmer gold
+BUTTON_DEFAULT = (55, 90, 145)        # Sophisticated steel blue
+BUTTON_HOVER = (75, 115, 175)         # Lighter on hover
+TEXT_LIGHT = (245, 245, 250)          # Soft white
 
 # Dynamic Colors (will be updated by set_theme)
 BACKGROUND = (245, 247, 250)
@@ -96,14 +124,14 @@ def set_theme(dark_mode: bool):
         BACKGROUND = (20, 20, 20)
         WHITE = (40, 40, 40)          # Dark grey for sub-board bg
         BLACK = (200, 200, 200)       # Light grey for grid lines
-        GRAY = (100, 100, 100)
-        LIGHT_GRAY = (60, 60, 60)
-        PLAYER_X_COLOR = (0, 255, 255)    # Neon Cyan
-        PLAYER_O_COLOR = (255, 0, 255)    # Neon Magenta
-        WIN_X_COLOR = (0, 200, 200)
-        WIN_O_COLOR = (200, 0, 200)
-        HIGHLIGHT_X = (0, 255, 255, 40)
-        HIGHLIGHT_O = (255, 0, 255, 40)
+        GRAY = (160, 160, 160)        # Lighter gray for readable text
+        LIGHT_GRAY = (80, 80, 80)     # For separators/backgrounds
+        PLAYER_X_COLOR = (86, 207, 225)   # Soft Teal
+        PLAYER_O_COLOR = (255, 138, 158)  # Soft Rose
+        WIN_X_COLOR = (70, 180, 195)
+        WIN_O_COLOR = (225, 115, 135)
+        HIGHLIGHT_X = (86, 207, 225, 40)
+        HIGHLIGHT_O = (255, 138, 158, 40)
         TEXT_DARK = (220, 220, 220)   # Light text for dark mode
     else:
         BACKGROUND = (245, 247, 250)
@@ -132,12 +160,17 @@ def set_theme(dark_mode: bool):
 # Initialize default theme
 set_theme(False)
 
-# Game settings (default sizes, will be recalculated on resize)
-DEFAULT_WINDOW_SIZE = 630
-DEFAULT_BOARD_SIZE = 600
+# Game settings (default sizes, adjusted for display scaling)
+# Scale down window size for high DPI displays to prevent overflow
+_BASE_WINDOW_SIZE = 630
+_BASE_STATUS_HEIGHT = 100
+_BASE_MIN_SIZE = 400
+
+DEFAULT_WINDOW_SIZE = int(_BASE_WINDOW_SIZE / DISPLAY_SCALE) if DISPLAY_SCALE > 1.0 else _BASE_WINDOW_SIZE
+DEFAULT_BOARD_SIZE = int(DEFAULT_WINDOW_SIZE * 0.95)
 DEFAULT_MARGIN = 15
-DEFAULT_STATUS_HEIGHT = 100
-MIN_WINDOW_SIZE = 400
+DEFAULT_STATUS_HEIGHT = int(_BASE_STATUS_HEIGHT / DISPLAY_SCALE) if DISPLAY_SCALE > 1.0 else _BASE_STATUS_HEIGHT
+MIN_WINDOW_SIZE = int(_BASE_MIN_SIZE / DISPLAY_SCALE) if DISPLAY_SCALE > 1.0 else _BASE_MIN_SIZE
 
 # Get the directory where the script is located
 try:
@@ -146,16 +179,84 @@ except NameError:
     SCRIPT_DIR = os.getcwd()
 SOUNDS_DIR = os.path.join(SCRIPT_DIR, 'sounds')
 
-# Fonts
+# Fonts - Premium PS5-style typography
 pygame.font.init()
-FONT_LARGE = pygame.font.SysFont('Arial', 48, bold=True)
-FONT_MEDIUM = pygame.font.SysFont('Arial', 24)
-FONT_SMALL = pygame.font.SysFont('Arial', 18)
-FONT_TITLE = pygame.font.SysFont('Arial', 42, bold=True)
-FONT_SUBTITLE = pygame.font.SysFont('Arial', 22)
-FONT_BROKE_EVEN = pygame.font.SysFont('Arial', 56, bold=True)
-FONT_BUTTON = pygame.font.SysFont('Arial', 28, bold=True)
-FONT_MENU_TITLE = pygame.font.SysFont('Arial', 36, bold=True)
+
+def scale_font_size(base_size: int) -> int:
+    """Scale font size based on display DPI to prevent text overflow."""
+    if DISPLAY_SCALE > 1.0:
+        return int(base_size / DISPLAY_SCALE)
+    return base_size
+
+def get_font(size: int, bold: bool = False, light: bool = False) -> pygame.font.Font:
+    """Get a premium font with cross-platform fallbacks."""
+    # Scale font size for high DPI displays
+    scaled_size = scale_font_size(size)
+
+    # Premium font stack: modern, clean sans-serif fonts
+    font_stack = [
+        'Segoe UI',           # Windows modern UI
+        'SF Pro Display',     # macOS system font
+        'Helvetica Neue',     # macOS classic
+        'Century Gothic',     # Geometric, premium feel
+        'Calibri',            # Windows fallback
+        'Arial',              # Universal fallback
+    ]
+
+    for font_name in font_stack:
+        try:
+            font = pygame.font.SysFont(font_name, scaled_size, bold=bold)
+            # Verify the font loaded (not default)
+            if font.get_height() > 0:
+                return font
+        except:
+            continue
+
+    return pygame.font.SysFont(None, scaled_size, bold=bold)
+
+FONT_LARGE = get_font(52, bold=True)
+FONT_MEDIUM = get_font(24)
+FONT_SMALL = get_font(18)
+FONT_TITLE = get_font(48, bold=True)
+FONT_SUBTITLE = get_font(22)
+FONT_BROKE_EVEN = get_font(64, bold=True)
+FONT_BUTTON = get_font(26, bold=True)
+FONT_MENU_TITLE = get_font(40, bold=True)
+
+
+def draw_premium_background(screen: pygame.Surface):
+    """Draw a premium PS5-style background with vignette effect."""
+    width, height = screen.get_size()
+    screen.fill(MENU_BACKGROUND)
+
+    # Subtle vignette effect
+    vignette = pygame.Surface((width, height), pygame.SRCALPHA)
+    for i in range(40):
+        alpha = int(i * 0.6)
+        pygame.draw.rect(vignette, (0, 0, 0, alpha),
+                        (i, i, width - 2*i, height - 2*i), 1)
+    screen.blit(vignette, (0, 0))
+
+
+def draw_title_with_glow(screen: pygame.Surface, text: str, center_pos: tuple,
+                         font: pygame.font.Font = None, color: tuple = None):
+    """Draw title text with a subtle glow effect."""
+    if font is None:
+        font = FONT_MENU_TITLE
+    if color is None:
+        color = GOLD
+
+    # Draw glow
+    glow_surf = font.render(text, True, color)
+    glow_surf.set_alpha(50)
+    for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2), (0, 3), (0, -3)]:
+        glow_rect = glow_surf.get_rect(center=(center_pos[0] + offset[0], center_pos[1] + offset[1]))
+        screen.blit(glow_surf, glow_rect)
+
+    # Draw main text
+    title_surf = font.render(text, True, color)
+    title_rect = title_surf.get_rect(center=center_pos)
+    screen.blit(title_surf, title_rect)
 
 
 class SoundManager:
@@ -369,32 +470,48 @@ class SplashScreen:
                 self.done = True
 
     def _draw(self):
-        """Draw the splash screen."""
+        """Draw the splash screen with premium aesthetics."""
         width, height = self.screen.get_size()
 
-        # Dark blue background
+        # Deep charcoal background with subtle gradient effect
         self.screen.fill(MENU_BACKGROUND)
+
+        # Draw subtle vignette effect
+        vignette = pygame.Surface((width, height), pygame.SRCALPHA)
+        for i in range(50):
+            alpha = int(i * 0.8)
+            pygame.draw.rect(vignette, (0, 0, 0, alpha),
+                           (i, i, width - 2*i, height - 2*i), 1)
+        self.screen.blit(vignette, (0, 0))
 
         # Calculate center position with shake
         center_x = width // 2 + self.shake_offset[0]
         center_y = height // 2 - 30 + self.shake_offset[1]
 
-        # Draw stamp frame/border
+        # Draw stamp frame/border with glow
         if self.stamp_phase >= 1:
-            frame_width = min(400, width - 40)
-            frame_height = 150
+            frame_width = min(420, width - 40)
+            frame_height = 160
             frame_rect = pygame.Rect(
                 center_x - frame_width // 2,
                 center_y - frame_height // 2,
                 frame_width,
                 frame_height
             )
-            pygame.draw.rect(self.screen, GOLD, frame_rect, 4)
+
+            # Outer glow
+            glow_surf = pygame.Surface((frame_width + 20, frame_height + 20), pygame.SRCALPHA)
+            glow_color = (*GOLD, 40)
+            pygame.draw.rect(glow_surf, glow_color, (0, 0, frame_width + 20, frame_height + 20),
+                           border_radius=8)
+            self.screen.blit(glow_surf, (frame_rect.x - 10, frame_rect.y - 10))
+
+            pygame.draw.rect(self.screen, GOLD, frame_rect, 3, border_radius=4)
             # Inner frame
             inner_rect = frame_rect.inflate(-16, -16)
-            pygame.draw.rect(self.screen, GOLD, inner_rect, 2)
+            pygame.draw.rect(self.screen, GOLD, inner_rect, 1, border_radius=2)
 
-        # Draw title text with stamp effect
+        # Draw title text with stamp effect and glow
         title_surf = FONT_TITLE.render(self.title_text, True, GOLD)
 
         if self.stamp_scale > 1.0:
@@ -411,6 +528,15 @@ class SplashScreen:
             title_surf = pygame.transform.rotate(title_surf, self.stamp_rotation * (self.stamp_scale - 1))
 
         title_rect = title_surf.get_rect(center=(center_x, center_y - 15))
+
+        # Draw text glow when stamp has landed
+        if self.stamp_phase >= 2:
+            glow_surf = FONT_TITLE.render(self.title_text, True, (*GOLD[:3],))
+            glow_surf.set_alpha(60)
+            for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
+                glow_rect = glow_surf.get_rect(center=(center_x + offset[0], center_y - 15 + offset[1]))
+                self.screen.blit(glow_surf, glow_rect)
+
         self.screen.blit(title_surf, title_rect)
 
         # Draw subtitle after stamp lands
@@ -418,15 +544,16 @@ class SplashScreen:
             alpha = min(255, int(self.phase_timer * 500))
             subtitle_surf = FONT_SUBTITLE.render(self.subtitle_text, True, TEXT_LIGHT)
             subtitle_surf.set_alpha(alpha)
-            subtitle_rect = subtitle_surf.get_rect(center=(center_x, center_y + 35))
+            subtitle_rect = subtitle_surf.get_rect(center=(center_x, center_y + 40))
             self.screen.blit(subtitle_surf, subtitle_rect)
 
-        # Draw "Click to continue" hint
+        # Draw "Click to continue" hint with smooth pulse
         if self.stamp_phase >= 4:
-            hint_alpha = int(128 + 127 * math.sin(pygame.time.get_ticks() / 300))
+            pulse = (math.sin(pygame.time.get_ticks() / 400) + 1) / 2
+            hint_alpha = int(100 + 155 * pulse)
             hint_surf = FONT_SMALL.render("Click to continue", True, TEXT_LIGHT)
             hint_surf.set_alpha(hint_alpha)
-            hint_rect = hint_surf.get_rect(center=(width // 2, height - 50))
+            hint_rect = hint_surf.get_rect(center=(width // 2, height - 60))
             self.screen.blit(hint_surf, hint_rect)
 
         pygame.display.flip()
@@ -443,12 +570,14 @@ class MenuButton:
         self.hover_color = hover_color or tuple(min(c + 40, 255) for c in color)
         self.is_hovered = False
         self.enabled = True
+        self.highlight = False  # Gold outline when True
 
     def set_enabled(self, enabled: bool):
         """Enable or disable the button."""
         self.enabled = enabled
         if not enabled:
             self.is_hovered = False
+            self.highlight = False
 
     def update_position(self, x: int, y: int):
         """Update button position."""
@@ -469,30 +598,67 @@ class MenuButton:
         return False
 
     def draw(self, screen: pygame.Surface):
-        """Draw the button."""
+        """Draw the button with premium PS5-style aesthetics."""
         if not self.enabled:
-            color = tuple(max(0, int(c * 0.5)) for c in self.color)
-            text_color = LIGHT_GRAY
+            base_color = tuple(max(0, int(c * 0.4)) for c in self.color)
+            text_color = GRAY
             shadow_offset = 0
         else:
-            color = self.hover_color if self.is_hovered else self.color
+            base_color = self.hover_color if self.is_hovered else self.color
             text_color = TEXT_LIGHT
-            shadow_offset = 2 if not self.is_hovered else 1
+            shadow_offset = 4 if not self.is_hovered else 2
 
-        # Draw shadow
-        if self.enabled:
-            shadow_rect = self.rect.copy()
-            shadow_rect.y += shadow_offset
-            pygame.draw.rect(screen, (0, 0, 0, 50), shadow_rect, border_radius=12)
-
-        # Draw button background with rounded corners
         button_rect = self.rect.copy()
-        if self.enabled and self.is_hovered:
-            button_rect.y += 1 # Press effect
-        
-        pygame.draw.rect(screen, color, button_rect, border_radius=12)
+        border_radius = 16
 
-        # Draw text
+        # Draw soft shadow (multiple layers for depth)
+        if self.enabled:
+            for i in range(3):
+                shadow_rect = button_rect.copy()
+                shadow_rect.y += shadow_offset + i
+                shadow_alpha = 30 - i * 10
+                shadow_surf = pygame.Surface((shadow_rect.width, shadow_rect.height), pygame.SRCALPHA)
+                pygame.draw.rect(shadow_surf, (0, 0, 0, shadow_alpha),
+                               (0, 0, shadow_rect.width, shadow_rect.height), border_radius=border_radius)
+                screen.blit(shadow_surf, shadow_rect.topleft)
+
+        # Hover press effect
+        if self.enabled and self.is_hovered:
+            button_rect.y += 2
+
+        # Draw main button body
+        pygame.draw.rect(screen, base_color, button_rect, border_radius=border_radius)
+
+        # Draw subtle top highlight (gradient effect)
+        if self.enabled:
+            highlight_rect = pygame.Rect(button_rect.x + 2, button_rect.y + 2,
+                                        button_rect.width - 4, button_rect.height // 3)
+            highlight_surf = pygame.Surface((highlight_rect.width, highlight_rect.height), pygame.SRCALPHA)
+            highlight_color = (255, 255, 255, 35 if self.is_hovered else 25)
+            pygame.draw.rect(highlight_surf, highlight_color,
+                           (0, 0, highlight_rect.width, highlight_rect.height),
+                           border_radius=border_radius)
+            screen.blit(highlight_surf, highlight_rect.topleft)
+
+        # Draw border - gold highlight or subtle default
+        if self.highlight and self.enabled:
+            # Gold outline with glow effect
+            glow_rect = button_rect.inflate(4, 4)
+            glow_surf = pygame.Surface((glow_rect.width, glow_rect.height), pygame.SRCALPHA)
+            pygame.draw.rect(glow_surf, (*GOLD, 60), (0, 0, glow_rect.width, glow_rect.height),
+                           border_radius=border_radius + 2)
+            screen.blit(glow_surf, glow_rect.topleft)
+            pygame.draw.rect(screen, GOLD, button_rect, width=3, border_radius=border_radius)
+        else:
+            border_color = tuple(min(c + 30, 255) for c in base_color) if self.enabled else GRAY
+            pygame.draw.rect(screen, border_color, button_rect, width=1, border_radius=border_radius)
+
+        # Draw text with subtle shadow
+        if self.enabled:
+            text_shadow = FONT_BUTTON.render(self.text, True, (0, 0, 0, 80))
+            shadow_rect = text_shadow.get_rect(center=(button_rect.centerx + 1, button_rect.centery + 1))
+            screen.blit(text_shadow, shadow_rect)
+
         text_surf = FONT_BUTTON.render(self.text, True, text_color)
         text_rect = text_surf.get_rect(center=button_rect.center)
         screen.blit(text_surf, text_rect)
@@ -583,14 +749,12 @@ class ModeSelectScreen:
         return self.selected_mode
 
     def _draw(self):
-        """Draw the mode selection screen."""
+        """Draw the mode selection screen with premium aesthetics."""
         width, height = self.screen.get_size()
-        self.screen.fill(MENU_BACKGROUND)
+        draw_premium_background(self.screen)
 
-        # Draw title
-        title_surf = FONT_MENU_TITLE.render("Select Game Mode", True, GOLD)
-        title_rect = title_surf.get_rect(center=(width // 2, height // 4))
-        self.screen.blit(title_surf, title_rect)
+        # Draw title with glow
+        draw_title_with_glow(self.screen, "Select Game Mode", (width // 2, height // 4))
 
         # Draw buttons
         self.one_player_btn.draw(self.screen)
@@ -683,18 +847,16 @@ class DifficultySelectScreen:
         return self.selected_difficulty
 
     def _draw(self):
-        """Draw the difficulty selection screen."""
+        """Draw the difficulty selection screen with premium aesthetics."""
         width, height = self.screen.get_size()
-        self.screen.fill(MENU_BACKGROUND)
+        draw_premium_background(self.screen)
 
-        # Draw title
-        title_surf = FONT_MENU_TITLE.render("Select Difficulty", True, GOLD)
-        title_rect = title_surf.get_rect(center=(width // 2, height // 4))
-        self.screen.blit(title_surf, title_rect)
+        # Draw title with glow
+        draw_title_with_glow(self.screen, "Select Difficulty", (width // 2, height // 4))
 
         # Draw subtitle
         subtitle_surf = FONT_SUBTITLE.render("You are X, AI is O", True, TEXT_LIGHT)
-        subtitle_rect = subtitle_surf.get_rect(center=(width // 2, height // 4 + 40))
+        subtitle_rect = subtitle_surf.get_rect(center=(width // 2, height // 4 + 45))
         self.screen.blit(subtitle_surf, subtitle_rect)
 
         # Draw buttons
@@ -884,6 +1046,9 @@ class TutorialScreen:
 
         # Demo game board
         self.demo_game: Optional['UltimateTicTacToe'] = None
+
+        # Board state history for going back
+        self.board_history: dict = {}  # step -> saved board state
         self._setup_demo_board()
 
         # UI elements
@@ -904,11 +1069,28 @@ class TutorialScreen:
         # Confetti for completion
         self.confetti = ConfettiSystem()
 
-    def _setup_demo_board(self):
+    def _needs_fresh_board(self, step: TutorialStep) -> bool:
+        """Check if this step needs a fresh board setup (not preserved from previous)."""
+        # Only these early demo steps need a fresh board
+        # All others preserve and build on the game state
+        return step in (
+            TutorialStep.WELCOME,
+            TutorialStep.BOARD_STRUCTURE,
+            TutorialStep.WIN_CONDITION,
+            TutorialStep.FIRST_MOVE,
+            TutorialStep.PRACTICE_MODE,  # Fresh board for free practice
+        )
+
+    def _setup_demo_board(self, force_reset: bool = False):
         """Set up the demo board for the current tutorial step."""
-        self.demo_game = UltimateTicTacToe()
-        self.last_move_cell = None
-        self.show_constraint_arrow = False
+        # Only create fresh board for steps that need specific setups
+        needs_fresh = force_reset or self._needs_fresh_board(self.current_step)
+
+        if needs_fresh:
+            self.demo_game = UltimateTicTacToe()
+            self.last_move_cell = None
+            self.show_constraint_arrow = False
+
         self.animation_timer = 0
 
         if self.current_step == TutorialStep.BOARD_STRUCTURE:
@@ -920,66 +1102,86 @@ class TutorialScreen:
             self.demo_game.game_over = True
 
         elif self.current_step == TutorialStep.OPPONENT_RESPONSE:
-            # Player moved in center board, top-right cell -> opponent must play top-right board
-            self.demo_game.sub_boards[1][1].cells[0][2] = 'X'
-            self.demo_game.sub_boards[0][2].cells[1][1] = 'O'
-            self.demo_game.current_player = 'O'
-            self.demo_game.active_board = (0, 2)
-            self.last_move_cell = (1, 1, 0, 2)
-            self.show_constraint_arrow = True
+            # Board preserved from FIRST_MOVE - just update state for O's turn
+            if self.demo_game:
+                self.demo_game.current_player = 'O'
+                # Find where X played and set active board accordingly
+                for br in range(3):
+                    for bc in range(3):
+                        for cr in range(3):
+                            for cc in range(3):
+                                if self.demo_game.sub_boards[br][bc].cells[cr][cc] == 'X':
+                                    self.demo_game.active_board = (cr, cc)
+                                    self.last_move_cell = (br, bc, cr, cc)
+                                    self.show_constraint_arrow = True
+                                    break
 
-        elif self.current_step == TutorialStep.CONSTRAINT_INTRO:
-            # Opponent's move now forces the next active board
-            self.demo_game.sub_boards[1][1].cells[0][2] = 'X'
-            self.demo_game.sub_boards[0][2].cells[1][1] = 'O'
-            self.demo_game.current_player = 'X'
-            self.demo_game.active_board = (1, 1)
-            self.last_move_cell = (0, 2, 1, 1)
-            self.show_constraint_arrow = True
+        elif self.current_step == TutorialStep.OPPONENT_MOVED:
+            # Board preserved - O plays their move
+            if self.demo_game and self.demo_game.active_board:
+                obr, obc = self.demo_game.active_board
+                # O plays top-left cell, which sends X back to board (0,0)!
+                self.demo_game.sub_boards[obr][obc].cells[0][0] = 'O'
+                self.demo_game.current_player = 'X'
+                self.demo_game.active_board = (0, 0)  # Back to top-left board!
+                self.last_move_cell = None
+                self.show_constraint_arrow = False
 
-        if self.current_step == TutorialStep.CONSTRAINT_PRACTICE:
-            # After first move - X is in center of center board
-            # O played in response, now X's turn in the board O was sent to
-            self.demo_game.sub_boards[1][1].cells[1][1] = 'X'  # X's first move
-            self.demo_game.sub_boards[1][1].cells[0][0] = 'O'  # O's response (sent to top-left board)
-            self.demo_game.current_player = 'X'
-            self.demo_game.active_board = (0, 0)  # X must play in top-left board
-            self.last_move_cell = (1, 1, 0, 0)  # O's last move for arrow
+        elif self.current_step == TutorialStep.CONSTRAINT_RESULT:
+            # Board preserved - show arrow from O's move to where X must play
+            if self.demo_game:
+                # O played at (0,2,0,0), which sends X to board (0,0)
+                self.last_move_cell = (0, 2, 0, 0)
+                self.show_constraint_arrow = True
+                self.demo_game.active_board = (0, 0)
+
+        elif self.current_step == TutorialStep.CONSTRAINT_PRACTICE:
+            # Board preserved - X plays in top-left board (sent back by O's move)
+            if self.demo_game:
+                self.demo_game.current_player = 'X'
+                self.demo_game.active_board = (0, 0)  # Top-left board
+                self.last_move_cell = None
+                self.show_constraint_arrow = False
 
         elif self.current_step == TutorialStep.SEE_CONSTRAINT:
-            # After constraint practice - show result
-            self.demo_game.sub_boards[1][1].cells[1][1] = 'X'
-            self.demo_game.sub_boards[1][1].cells[0][0] = 'O'
-            self.demo_game.sub_boards[0][0].cells[1][1] = 'X'  # User's practice move
-            self.demo_game.current_player = 'O'
-            self.demo_game.active_board = (1, 1)  # O sent back to center
-            self.last_move_cell = (0, 0, 1, 1)  # X's last move for arrow
-            self.show_constraint_arrow = True
+            # Board preserved - show arrow from X's move at (0,0,0,1) to board (0,1)
+            if self.demo_game:
+                # X played top-center cell (0,1) of top-left board -> O goes to top-center board (0,1)
+                self.last_move_cell = (0, 0, 0, 1)
+                self.show_constraint_arrow = True
+                self.demo_game.current_player = 'O'
+                self.demo_game.active_board = (0, 1)  # Top-center board
 
         elif self.current_step == TutorialStep.WIN_MINI_BOARD:
-            # Set up a board 1 move away from winning
-            # X has two in a row in top-left board, needs one more
-            self.demo_game.sub_boards[0][0].cells[0][0] = 'X'
-            self.demo_game.sub_boards[0][0].cells[0][1] = 'X'
-            # Add some other moves for realism
-            self.demo_game.sub_boards[0][1].cells[0][0] = 'O'
-            self.demo_game.sub_boards[0][2].cells[0][0] = 'O'
-            self.demo_game.current_player = 'X'
-            self.demo_game.active_board = (0, 0)  # Must play here to win
+            # Board preserved - X already has (0,0,0,2) and (0,0,0,1) = TWO IN A ROW!
+            # Just add O's response move, then X can complete the win
+            if self.demo_game:
+                # O plays in top-center board (where X sent them), cell (0,0) sends X back
+                self.demo_game.sub_boards[0][1].cells[0][0] = 'O'
+                self.demo_game.current_player = 'X'
+                self.demo_game.active_board = (0, 0)  # X plays in top-left to win!
+                self.last_move_cell = None
+                self.show_constraint_arrow = False
 
-        elif self.current_step in (TutorialStep.FREE_MOVE_SETUP, TutorialStep.FREE_MOVE_RULE):
-            # Pre-fill to demonstrate the free move rule
-            # Win sub-board (1,1) for X
-            self.demo_game.sub_boards[1][1].cells[0][0] = 'X'
-            self.demo_game.sub_boards[1][1].cells[1][1] = 'X'
-            self.demo_game.sub_boards[1][1].cells[2][2] = 'X'
-            self.demo_game.sub_boards[1][1].winner = 'X'
-            # Place moves that lead to being sent to the won board
-            self.demo_game.sub_boards[0][0].cells[1][1] = 'O'
-            self.demo_game.sub_boards[0][1].cells[0][0] = 'X'
-            self.demo_game.sub_boards[0][0].cells[0][0] = 'O'
-            self.demo_game.current_player = 'X'
-            self.demo_game.active_board = None  # Free move (would have been sent to won board)
+        elif self.current_step == TutorialStep.FREE_MOVE_SETUP:
+            # Board preserved - X just won board (0,0) with top row!
+            # X's winning cell (0,0) would send O to board (0,0), but it's WON
+            # So O gets a free move. O plays at cell (0,0) in another board...
+            if self.demo_game:
+                # Mark the top-left board as won (should already be from player's click)
+                self.demo_game.sub_boards[0][0].winner = 'X'
+                # O takes their free move at (1,0,0,0) - sends X to (0,0) which is won!
+                self.demo_game.sub_boards[1][0].cells[0][0] = 'O'
+                self.demo_game.current_player = 'X'
+                self.demo_game.active_board = None  # X has FREE MOVE!
+                self.last_move_cell = (1, 0, 0, 0)  # O's move that sends to won board
+                self.show_constraint_arrow = True
+
+        elif self.current_step == TutorialStep.FREE_MOVE_RULE:
+            # Same state as FREE_MOVE_SETUP, just update for interaction
+            if self.demo_game:
+                self.last_move_cell = None
+                self.show_constraint_arrow = False
 
         elif self.current_step == TutorialStep.PRACTICE_MODE:
             # Fresh board for free practice
@@ -994,19 +1196,19 @@ class TutorialScreen:
         self.bubbles = []
 
         if self.current_step == TutorialStep.FIRST_MOVE:
-            # Highlight a move that sends the opponent to a different board
-            if self.step_substep == 0:
-                self.highlight_cells = [(1, 1, 0, 2)]
-
-        elif self.current_step == TutorialStep.CONSTRAINT_PRACTICE:
-            # Highlight center cell of top-left board (where O's move sent us)
-            if self.step_substep == 0:
-                self.highlight_cells = [(0, 0, 1, 1)]
-
-        elif self.current_step == TutorialStep.WIN_MINI_BOARD:
-            # Highlight the winning cell (top-left board, top-right cell)
+            # Highlight top-right cell of top-left board
             if self.step_substep == 0:
                 self.highlight_cells = [(0, 0, 0, 2)]
+
+        elif self.current_step == TutorialStep.CONSTRAINT_PRACTICE:
+            # Highlight top-center cell of top-left board (builds toward win!)
+            if self.step_substep == 0:
+                self.highlight_cells = [(0, 0, 0, 1)]
+
+        elif self.current_step == TutorialStep.WIN_MINI_BOARD:
+            # Highlight the winning cell (top-left board, top-left cell to complete row)
+            if self.step_substep == 0:
+                self.highlight_cells = [(0, 0, 0, 0)]
 
     def _create_buttons(self):
         """Create navigation buttons."""
@@ -1067,6 +1269,8 @@ class TutorialScreen:
         """Enable or disable buttons based on tutorial progress."""
         allow_next = not self._step_requires_action() or self.step_substep > 0
         self.next_btn.set_enabled(allow_next)
+        # Gold highlight when ready to proceed
+        self.next_btn.highlight = allow_next
 
     def _get_demo_cell_center(self, br: int, bc: int, cr: int, cc: int,
                               offset_x: int, offset_y: int,
@@ -1109,21 +1313,32 @@ class TutorialScreen:
                 )
                 TutorialArrow(start, end).draw(self.screen)
 
-        if self.current_step in (
-            TutorialStep.FIRST_MOVE,
-            TutorialStep.CONSTRAINT_PRACTICE,
-            TutorialStep.WIN_MINI_BOARD,
-        ) and self.highlight_cells:
+        if self.current_step == TutorialStep.FIRST_MOVE and self.highlight_cells:
             br, bc, cr, cc = self.highlight_cells[0]
             anchor = self._get_demo_cell_center(
                 br, bc, cr, cc, offset_x, offset_y, cell_size, sub_board_size
             )
-            TutorialBubble("Click the highlighted cell.", anchor, direction='above', width=230).draw(self.screen)
+            TutorialBubble("Click here (top-right cell)", anchor, direction='above', width=200).draw(self.screen)
+
+        elif self.current_step == TutorialStep.CONSTRAINT_PRACTICE and self.highlight_cells:
+            br, bc, cr, cc = self.highlight_cells[0]
+            anchor = self._get_demo_cell_center(
+                br, bc, cr, cc, offset_x, offset_y, cell_size, sub_board_size
+            )
+            TutorialBubble("Click here", anchor, direction='above', width=120).draw(self.screen)
+
+        elif self.current_step == TutorialStep.WIN_MINI_BOARD and self.highlight_cells:
+            br, bc, cr, cc = self.highlight_cells[0]
+            anchor = self._get_demo_cell_center(
+                br, bc, cr, cc, offset_x, offset_y, cell_size, sub_board_size
+            )
+            TutorialBubble("Win! Click here", anchor, direction='above', width=140).draw(self.screen)
 
         elif self.current_step == TutorialStep.FREE_MOVE_RULE:
+            # Point to center board (a valid option since top-left is won)
             anchor = self._get_demo_board_center(1, 1, offset_x, offset_y, sub_board_size)
-            TutorialBubble("Any board is valid. Make a move anywhere.",
-                           anchor, direction='above', width=260).draw(self.screen)
+            TutorialBubble("Pick any valid board",
+                           anchor, direction='above', width=180).draw(self.screen)
 
     def run(self) -> str:
         """Run the tutorial. Returns 'MENU' to go back."""
@@ -1156,12 +1371,6 @@ class TutorialScreen:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         return 'MENU'
-
-            # Handle auto-advance for OPPONENT_RESPONSE step
-            if self.current_step == TutorialStep.OPPONENT_RESPONSE:
-                self.animation_timer += dt
-                if self.animation_timer >= self.auto_advance_delay:
-                    self._next_step()
 
             # Update BOARD_STRUCTURE animation
             if self.current_step == TutorialStep.BOARD_STRUCTURE:
@@ -1202,23 +1411,85 @@ class TutorialScreen:
 
         return None
 
+    def _save_board_state(self):
+        """Save current board state for this step."""
+        if self.demo_game is None:
+            return
+        # Deep copy the board state
+        state = {
+            'cells': [[
+                [cell for cell in row]
+                for row in self.demo_game.sub_boards[br][bc].cells
+            ] for br in range(3) for bc in range(3)],
+            'winners': [
+                self.demo_game.sub_boards[br][bc].winner
+                for br in range(3) for bc in range(3)
+            ],
+            'current_player': self.demo_game.current_player,
+            'active_board': self.demo_game.active_board,
+            'game_over': self.demo_game.game_over,
+            'winner': self.demo_game.winner,
+            'last_move_cell': self.last_move_cell,
+            'show_constraint_arrow': self.show_constraint_arrow,
+            'step_substep': self.step_substep,
+        }
+        self.board_history[self.current_step] = state
+
+    def _restore_board_state(self, step: TutorialStep) -> bool:
+        """Restore board state for a step. Returns True if successful."""
+        if step not in self.board_history:
+            return False
+        state = self.board_history[step]
+        if self.demo_game is None:
+            self.demo_game = UltimateTicTacToe()
+        # Restore cells and winners
+        idx = 0
+        for br in range(3):
+            for bc in range(3):
+                for r in range(3):
+                    for c in range(3):
+                        self.demo_game.sub_boards[br][bc].cells[r][c] = state['cells'][idx][r][c]
+                self.demo_game.sub_boards[br][bc].winner = state['winners'][idx]
+                idx += 1
+        self.demo_game.current_player = state['current_player']
+        self.demo_game.active_board = state['active_board']
+        self.demo_game.game_over = state['game_over']
+        self.demo_game.winner = state['winner']
+        self.last_move_cell = state['last_move_cell']
+        self.show_constraint_arrow = state['show_constraint_arrow']
+        self.step_substep = state['step_substep']
+        self._update_highlights()
+        return True
+
     def _next_step(self):
         """Advance to next tutorial step."""
+        # Save current state before advancing
+        self._save_board_state()
+
         steps = list(TutorialStep)
         current_idx = steps.index(self.current_step)
         if current_idx < len(steps) - 1:
             self.current_step = steps[current_idx + 1]
             self.step_substep = 0
+            # _setup_demo_board handles whether to preserve or reset
             self._setup_demo_board()
+            self._update_highlights()
 
     def _previous_step(self):
         """Go to previous tutorial step."""
         steps = list(TutorialStep)
         current_idx = steps.index(self.current_step)
         if current_idx > 0:
-            self.current_step = steps[current_idx - 1]
-            self.step_substep = 0
-            self._setup_demo_board()
+            prev_step = steps[current_idx - 1]
+            # Try to restore saved state
+            if self._restore_board_state(prev_step):
+                self.current_step = prev_step
+            else:
+                # Fallback to setup
+                self.current_step = prev_step
+                self.step_substep = 0
+                self._setup_demo_board(force_reset=True)
+            self._update_highlights()
 
     def _handle_demo_click(self, pos):
         """Handle click on demo board."""
@@ -1296,88 +1567,92 @@ class TutorialScreen:
             TutorialStep.BOARD_STRUCTURE: [
                 "Board Structure",
                 "",
-                "The main board is a 3x3 grid of mini boards.",
-                "Each mini board is its own Tic Tac Toe game.",
+                "The game is a 3x3 grid of mini Tic Tac Toe boards.",
+                "Each of the 9 mini boards is highlighted in turn.",
             ],
             TutorialStep.WIN_CONDITION: [
-                "Win Condition",
+                "How to Win",
                 "",
-                "Win a mini board by getting 3 in a row.",
-                "Win the game by winning 3 mini boards in a row.",
+                "Win a mini board by getting 3 in a row inside it.",
+                "Win the GAME by winning 3 mini boards in a row!",
             ],
             TutorialStep.FIRST_MOVE: [
-                "Your First Move",
+                "The Key Rule",
                 "",
-                "Click the highlighted cell to place your X.",
-                "Your move decides which board your opponent must play in.",
+                "Click the TOP-RIGHT cell of the top-left board.",
+                "Watch: your cell position decides the NEXT active board.",
             ],
             TutorialStep.OPPONENT_RESPONSE: [
-                "Opponent Response",
+                "See What Happened",
                 "",
-                "Your opponent must play in the highlighted board.",
-                "That board matches the cell you chose.",
+                "You played in the TOP-RIGHT CELL of the top-left board.",
+                "So O must play in the TOP-RIGHT BOARD (gold outline).",
             ],
-            TutorialStep.CONSTRAINT_INTRO: [
-                "The Active Board Rule",
+            TutorialStep.OPPONENT_MOVED: [
+                "O Takes Their Turn",
                 "",
-                "Each move sends the next player to a board.",
-                "The arrow shows which board is now active.",
+                "O played in the TOP-LEFT cell of the top-right board.",
+                "Now the same rule applies to you...",
+            ],
+            TutorialStep.CONSTRAINT_RESULT: [
+                "Where You Must Play",
+                "",
+                "O's TOP-LEFT cell sends you back to the TOP-LEFT board!",
+                "Follow the arrow. The gold outline shows your only option.",
             ],
             TutorialStep.CONSTRAINT_PRACTICE: [
-                "Try the Rule",
+                "Your Turn Again",
                 "",
-                "Play in the highlighted board.",
-                "Click the highlighted cell to continue.",
+                "You're back in the top-left board (gold outline).",
+                "Click the highlighted cell to build toward a win!",
             ],
             TutorialStep.SEE_CONSTRAINT: [
-                "See the Result",
+                "Building a Win",
                 "",
-                "Your move sent the opponent to a new board.",
-                "That board becomes the only valid choice.",
+                "You played the TOP-CENTER cell → O goes to TOP-CENTER board.",
+                "Notice: you now have TWO in a row in the top-left board!",
             ],
             TutorialStep.WIN_MINI_BOARD: [
                 "Win a Mini Board",
                 "",
-                "Get 3 in a row inside one mini board.",
-                "Click the highlighted cell to win it.",
+                "O played, and you're back in the top-left board.",
+                "Click the highlighted cell to complete the row and WIN!",
             ],
             TutorialStep.FREE_MOVE_SETUP: [
-                "Free Move Setup",
+                "Exception: Free Move",
                 "",
-                "Sometimes the required board is already won or full.",
-                "In that case you may play anywhere.",
+                "You won the top-left board! O's move sends you there...",
+                "But you can't play in a won board. So you get a FREE MOVE!",
             ],
             TutorialStep.FREE_MOVE_RULE: [
-                "Free Move Rule",
+                "Free Move - Try It",
                 "",
-                "Any board is valid now.",
-                "Make a move anywhere to continue.",
+                "All boards with gold outlines are valid.",
+                "Pick any open cell in any available board.",
             ],
             TutorialStep.PRACTICE_MODE: [
-                "Practice Mode",
+                "Free Practice",
                 "",
-                "Play a few turns to get comfortable.",
-                "Click Next when you're ready to start a real game.",
+                "Experiment freely. Notice how each move sets the next board.",
+                "Click Next when ready to play a real game!",
             ],
             TutorialStep.COMPLETE: [
                 "You're Ready!",
                 "",
-                "You now know the basic rules.",
-                "Click Next to return to the menu and start playing!",
+                "Remember: cell position = next board.",
+                "Good luck!",
             ],
         }
         return instructions.get(self.current_step, [])
 
     def _draw(self):
-        """Draw the tutorial screen."""
+        """Draw the tutorial screen with premium aesthetics."""
         self._update_button_states()
         width, height = self.screen.get_size()
-        self.screen.fill(MENU_BACKGROUND)
+        draw_premium_background(self.screen)
 
-        # Draw title
-        title_surf = FONT_MENU_TITLE.render("How to Play", True, GOLD)
-        title_rect = title_surf.get_rect(center=(width // 2, 35))
-        self.screen.blit(title_surf, title_rect)
+        # Draw title with glow
+        draw_title_with_glow(self.screen, "How to Play", (width // 2, 35))
 
         # Draw instructions
         instructions = self._get_step_instructions()
@@ -1476,9 +1751,8 @@ class TutorialScreen:
                 surf.fill(highlight_color)
                 self.screen.blit(surf, board_rect)
                 
-                # Border
-                border_color = PLAYER_X_COLOR if self.demo_game.current_player == 'X' else PLAYER_O_COLOR
-                pygame.draw.rect(self.screen, border_color, board_rect, width=2, border_radius=8)
+                # Gold border for active board
+                pygame.draw.rect(self.screen, GOLD, board_rect, width=3, border_radius=8)
         
         if not is_active:
              # Inactive board background
@@ -1497,11 +1771,11 @@ class TutorialScreen:
         # Won board overlay
         if sub_board.winner:
             overlay_color = WIN_X_COLOR if sub_board.winner == 'X' else WIN_O_COLOR
-            
+
             surf = pygame.Surface((board_rect.width, board_rect.height), pygame.SRCALPHA)
             surf.fill((*overlay_color, 40))
             self.screen.blit(surf, board_rect)
-            
+
             self._draw_large_symbol(sub_board.winner, base_x, base_y, sub_board_size)
 
         # Grid lines
@@ -2379,9 +2653,8 @@ class GameRenderer:
             surf.fill(highlight_color)
             self.screen.blit(surf, board_rect)
             
-            # Border for active board
-            border_color = PLAYER_X_COLOR if game.current_player == 'X' else PLAYER_O_COLOR
-            pygame.draw.rect(self.screen, border_color, board_rect, width=2, border_radius=8)
+            # Gold border for active board
+            pygame.draw.rect(self.screen, GOLD, board_rect, width=3, border_radius=8)
         else:
             # Inactive board background
             pygame.draw.rect(self.screen, LIGHT_GRAY, board_rect, border_radius=8)
@@ -2394,7 +2667,7 @@ class GameRenderer:
             surf = pygame.Surface((board_rect.width, board_rect.height), pygame.SRCALPHA)
             surf.fill((*overlay_color, 40)) # Very light tint
             self.screen.blit(surf, board_rect)
-            
+
             # Draw large X or O
             self._draw_large_symbol(sub_board.winner, base_x, base_y)
         
@@ -2503,62 +2776,41 @@ class GameRenderer:
                 pygame.draw.circle(self.screen, color, center, circle_radius, line_width)
         
         else:
-            # === REALISTIC NEON TUBE STYLE (Dark Mode) ===
+            # === POLISHED STYLE (Dark Mode) - Subtle glow ===
             tube_width = max(5, size // 12)
-            
+
             if player == 'X':
                 color = PLAYER_X_COLOR
                 points = [
                     ((x + padding, y + padding), (x + size - padding, y + size - padding)),
                     ((x + size - padding, y + padding), (x + padding, y + size - padding))
                 ]
-                
-                # Create a surface for the neon effect
+
                 surf = pygame.Surface((size, size), pygame.SRCALPHA)
-                
-                # 1. Drop Shadow (Offset)
-                shadow_offset = 4
+
+                # 1. Subtle shadow
+                shadow_offset = 2
                 for start, end in points:
                     s_start = (start[0] - x + shadow_offset, start[1] - y + shadow_offset)
                     s_end = (end[0] - x + shadow_offset, end[1] - y + shadow_offset)
-                    pygame.draw.line(surf, (0, 0, 0, 120), s_start, s_end, tube_width + 2)
-                    pygame.draw.circle(surf, (0, 0, 0, 120), s_start, (tube_width + 2) // 2)
-                    pygame.draw.circle(surf, (0, 0, 0, 120), s_end, (tube_width + 2) // 2)
+                    pygame.draw.line(surf, (0, 0, 0, 60), s_start, s_end, tube_width)
 
-                # 2. Outer Glow (Wide, Soft)
-                glow_width = tube_width * 4
+                # 2. Subtle outer glow
+                glow_width = int(tube_width * 1.8)
                 for start, end in points:
                     l_start = (start[0] - x, start[1] - y)
                     l_end = (end[0] - x, end[1] - y)
-                    pygame.draw.line(surf, (*color, 30), l_start, l_end, glow_width)
-                    pygame.draw.circle(surf, (*color, 30), l_start, glow_width // 2)
-                    pygame.draw.circle(surf, (*color, 30), l_end, glow_width // 2)
+                    pygame.draw.line(surf, (*color, 40), l_start, l_end, glow_width)
+                    pygame.draw.circle(surf, (*color, 40), l_start, glow_width // 2)
+                    pygame.draw.circle(surf, (*color, 40), l_end, glow_width // 2)
 
-                # 3. Inner Glow (Brighter)
-                mid_width = tube_width * 2
-                for start, end in points:
-                    l_start = (start[0] - x, start[1] - y)
-                    l_end = (end[0] - x, end[1] - y)
-                    pygame.draw.line(surf, (*color, 80), l_start, l_end, mid_width)
-                    pygame.draw.circle(surf, (*color, 80), l_start, mid_width // 2)
-                    pygame.draw.circle(surf, (*color, 80), l_end, mid_width // 2)
-
-                # 4. Colored Tube Body (Solid)
+                # 3. Solid colored line
                 for start, end in points:
                     l_start = (start[0] - x, start[1] - y)
                     l_end = (end[0] - x, end[1] - y)
                     pygame.draw.line(surf, color, l_start, l_end, tube_width)
                     pygame.draw.circle(surf, color, l_start, tube_width // 2)
                     pygame.draw.circle(surf, color, l_end, tube_width // 2)
-
-                # 5. White Core (Thin, Center)
-                core_width = max(2, tube_width // 3)
-                for start, end in points:
-                    l_start = (start[0] - x, start[1] - y)
-                    l_end = (end[0] - x, end[1] - y)
-                    pygame.draw.line(surf, (255, 255, 255), l_start, l_end, core_width)
-                    pygame.draw.circle(surf, (255, 255, 255), l_start, core_width // 2)
-                    pygame.draw.circle(surf, (255, 255, 255), l_end, core_width // 2)
 
                 self.screen.blit(surf, (x, y))
 
@@ -2567,28 +2819,20 @@ class GameRenderer:
                 center = (x + size // 2, y + size // 2)
                 radius = size // 2 - padding
                 local_center = (size // 2, size // 2)
-                
+
                 surf = pygame.Surface((size, size), pygame.SRCALPHA)
-                
-                # 1. Shadow
-                shadow_offset = 4
+
+                # 1. Subtle shadow
+                shadow_offset = 2
                 s_center = (local_center[0] + shadow_offset, local_center[1] + shadow_offset)
-                pygame.draw.circle(surf, (0, 0, 0, 120), s_center, radius, tube_width + 2)
+                pygame.draw.circle(surf, (0, 0, 0, 60), s_center, radius, tube_width)
 
-                # 2. Outer Glow
-                glow_width = tube_width * 4
-                pygame.draw.circle(surf, (*color, 30), local_center, radius, glow_width)
+                # 2. Subtle outer glow
+                glow_width = int(tube_width * 1.8)
+                pygame.draw.circle(surf, (*color, 40), local_center, radius, glow_width)
 
-                # 3. Inner Glow
-                mid_width = tube_width * 2
-                pygame.draw.circle(surf, (*color, 80), local_center, radius, mid_width)
-
-                # 4. Tube Body
+                # 3. Solid colored circle
                 pygame.draw.circle(surf, color, local_center, radius, tube_width)
-
-                # 5. White Core
-                core_width = max(2, tube_width // 3)
-                pygame.draw.circle(surf, (255, 255, 255), local_center, radius, core_width)
 
                 self.screen.blit(surf, (x, y))
 
@@ -2635,63 +2879,61 @@ class GameRenderer:
                 pygame.draw.circle(self.screen, color, center, circle_radius, line_width)
                 
         else:
-            # === NEON STYLE ===
+            # === POLISHED STYLE (Dark Mode) - Subtle glow ===
             base_width = max(8, self.sub_board_size // 12)
+            # Reduced glow: fewer layers, lower alphas
             layers = [
-                (7, 30),
-                (4, 70),
-                (2.5, 120),
-                (1.5, 180)
+                (2.5, 25),
+                (1.8, 60),
+                (1.2, 140)
             ]
-            
+
             if player == 'X':
                 start_pos1 = (x + padding, y + padding)
                 end_pos1 = (x + self.sub_board_size - padding, y + self.sub_board_size - padding)
                 start_pos2 = (x + self.sub_board_size - padding, y + padding)
                 end_pos2 = (x + padding, y + self.sub_board_size - padding)
-                
+
                 glow_surf = pygame.Surface((self.sub_board_size, self.sub_board_size), pygame.SRCALPHA)
                 local_start1 = (padding, padding)
                 local_end1 = (self.sub_board_size - padding, self.sub_board_size - padding)
                 local_start2 = (self.sub_board_size - padding, padding)
                 local_end2 = (padding, self.sub_board_size - padding)
-                
+
                 for width_mult, alpha in layers:
                     current_width = int(base_width * width_mult)
                     color = (*WIN_X_COLOR, alpha)
                     pygame.draw.line(glow_surf, color, local_start1, local_end1, current_width)
                     pygame.draw.line(glow_surf, color, local_start2, local_end2, current_width)
-                    # Rounded caps for glow
                     pygame.draw.circle(glow_surf, color, local_start1, current_width // 2)
                     pygame.draw.circle(glow_surf, color, local_end1, current_width // 2)
                     pygame.draw.circle(glow_surf, color, local_start2, current_width // 2)
                     pygame.draw.circle(glow_surf, color, local_end2, current_width // 2)
-                
+
                 self.screen.blit(glow_surf, (x, y))
-                
-                core_color = (255, 255, 255)
-                pygame.draw.line(self.screen, core_color, start_pos1, end_pos1, base_width // 2 + 1)
-                pygame.draw.line(self.screen, core_color, start_pos2, end_pos2, base_width // 2 + 1)
-                # Rounded caps for core
-                pygame.draw.circle(self.screen, core_color, start_pos1, (base_width // 2 + 1) // 2)
-                pygame.draw.circle(self.screen, core_color, end_pos1, (base_width // 2 + 1) // 2)
-                pygame.draw.circle(self.screen, core_color, start_pos2, (base_width // 2 + 1) // 2)
-                pygame.draw.circle(self.screen, core_color, end_pos2, (base_width // 2 + 1) // 2)
+
+                # Solid core in player color (not white)
+                pygame.draw.line(self.screen, WIN_X_COLOR, start_pos1, end_pos1, base_width)
+                pygame.draw.line(self.screen, WIN_X_COLOR, start_pos2, end_pos2, base_width)
+                pygame.draw.circle(self.screen, WIN_X_COLOR, start_pos1, base_width // 2)
+                pygame.draw.circle(self.screen, WIN_X_COLOR, end_pos1, base_width // 2)
+                pygame.draw.circle(self.screen, WIN_X_COLOR, start_pos2, base_width // 2)
+                pygame.draw.circle(self.screen, WIN_X_COLOR, end_pos2, base_width // 2)
             else:
                 center = (x + self.sub_board_size // 2, y + self.sub_board_size // 2)
                 radius = self.sub_board_size // 2 - padding
                 local_center = (self.sub_board_size // 2, self.sub_board_size // 2)
-                
+
                 glow_surf = pygame.Surface((self.sub_board_size, self.sub_board_size), pygame.SRCALPHA)
                 for width_mult, alpha in layers:
                     current_width = int(base_width * width_mult)
                     color = (*WIN_O_COLOR, alpha)
                     pygame.draw.circle(glow_surf, color, local_center, radius, current_width)
-                
+
                 self.screen.blit(glow_surf, (x, y))
-                
-                core_color = (255, 255, 255)
-                pygame.draw.circle(self.screen, core_color, center, radius, base_width // 2 + 1)
+
+                # Solid core in player color (not white)
+                pygame.draw.circle(self.screen, WIN_O_COLOR, center, radius, base_width)
 
     def _draw_status(self, game: UltimateTicTacToe):
         """Draw the game status at the bottom."""
@@ -2739,7 +2981,7 @@ class GameRenderer:
                 mode_text = f"vs {self.difficulty.value} AI"
             else:
                 mode_text = "2 Players"
-            mode_surface = FONT_SMALL.render(mode_text, True, GRAY)
+            mode_surface = FONT_SMALL.render(mode_text, True, TEXT_DARK)
             self.screen.blit(mode_surface, (20, status_y))
 
         # Bottom row with home and restart hints
@@ -2747,16 +2989,16 @@ class GameRenderer:
 
         # Prepare text surfaces
         home_text = "Press E to Return Home"
-        home_color = BUTTON_HOVER if self.home_button_hovered else GRAY
+        home_color = BUTTON_HOVER if self.home_button_hovered else TEXT_DARK
         home_surface = FONT_SMALL.render(home_text, True, home_color)
 
-        sep_surface = FONT_SMALL.render("|", True, LIGHT_GRAY)
+        sep_surface = FONT_SMALL.render("|", True, GRAY)
 
         restart_text = "Press R to Restart"
-        restart_surface = FONT_SMALL.render(restart_text, True, GRAY)
+        restart_surface = FONT_SMALL.render(restart_text, True, TEXT_DARK)
 
         theme_text = "Press D for Theme"
-        theme_surface = FONT_SMALL.render(theme_text, True, GRAY)
+        theme_surface = FONT_SMALL.render(theme_text, True, TEXT_DARK)
 
         # Calculate total width and center position
         spacing = 15
