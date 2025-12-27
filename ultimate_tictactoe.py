@@ -16,6 +16,7 @@ import sys
 import os
 import random
 import math
+import threading
 import numpy as np
 import ctypes
 import platform
@@ -86,7 +87,7 @@ pygame.mixer.init()
 IS_DARK_MODE = False
 
 # Static Colors (Constant) - Premium PS5-style palette
-MENU_BACKGROUND = (18, 18, 24)        # Deep charcoal
+MENU_BACKGROUND = (15, 23, 42)        # Modern Slate Dark (matches Dark Mode)
 RED = (231, 76, 60)
 BLUE = (66, 135, 245)                 # Refined blue
 GREEN = (46, 204, 113)
@@ -121,18 +122,22 @@ def set_theme(dark_mode: bool):
     IS_DARK_MODE = dark_mode
 
     if dark_mode:
-        BACKGROUND = (20, 20, 20)
-        WHITE = (40, 40, 40)          # Dark grey for sub-board bg
-        BLACK = (200, 200, 200)       # Light grey for grid lines
-        GRAY = (160, 160, 160)        # Lighter gray for readable text
-        LIGHT_GRAY = (80, 80, 80)     # For separators/backgrounds
-        PLAYER_X_COLOR = (86, 207, 225)   # Soft Teal
-        PLAYER_O_COLOR = (255, 138, 158)  # Soft Rose
-        WIN_X_COLOR = (70, 180, 195)
-        WIN_O_COLOR = (225, 115, 135)
-        HIGHLIGHT_X = (86, 207, 225, 40)
-        HIGHLIGHT_O = (255, 138, 158, 40)
-        TEXT_DARK = (220, 220, 220)   # Light text for dark mode
+        BACKGROUND = (15, 23, 42)     # Deep midnight blue/slate (Modern Dark)
+        WHITE = (30, 41, 59)          # Dark slate for sub-board bg
+        BLACK = (148, 163, 184)       # Blue-gray for grid lines (Slate-400)
+        GRAY = (203, 213, 225)        # Light slate for text
+        LIGHT_GRAY = (51, 65, 85)     # Slate-700 for separators
+        
+        # Neon/Vibrant accents for dark mode
+        PLAYER_X_COLOR = (34, 211, 238)   # Cyan-400
+        PLAYER_O_COLOR = (244, 114, 182)  # Pink-400
+        WIN_X_COLOR = (8, 145, 178)       # Darker cyan
+        WIN_O_COLOR = (219, 39, 119)      # Darker pink
+        
+        # Brighter highlights
+        HIGHLIGHT_X = (34, 211, 238, 50)
+        HIGHLIGHT_O = (244, 114, 182, 50)
+        TEXT_DARK = (241, 245, 249)   # Near white
     else:
         BACKGROUND = (245, 247, 250)
         WHITE = (255, 255, 255)
@@ -283,99 +288,180 @@ class SoundManager:
             except Exception as e:
                 print(f"Could not load sound {filename}: {e}")
 
-    def play(self, name: str):
-        """Play a sound by name."""
+    def play(self, name: str, pan: float = 0.0, volume_var: bool = False):
+        """
+        Play a sound by name with optional panning and volume variation.
+        pan: -1.0 (left) to 1.0 (right)
+        volume_var: if True, slightly randomize volume
+        """
         if name in self.sounds:
-            self.sounds[name].play()
+            sound = self.sounds[name]
+            
+            # Calculate volume (base 1.0 with optional variation)
+            vol = 1.0
+            if volume_var:
+                vol = random.uniform(0.9, 1.0)
+            
+            sound.set_volume(vol)
+            
+            # Play and get channel
+            channel = sound.play()
+            if channel:
+                # enhanced stereo panning
+                # pan is -1.0 to 1.0
+                # left volume: 1.0 when pan <= 0, decreases to 0 as pan -> 1
+                # right volume: 1.0 when pan >= 0, decreases to 0 as pan -> -1
+                
+                # Simple linear panning
+                right = (pan + 1) / 2
+                left = 1 - right
+                
+                # Clamp
+                left = max(0.0, min(1.0, left))
+                right = max(0.0, min(1.0, right))
+                
+                channel.set_volume(left, right)
 
 
-class ConfettiParticle:
-    """A single confetti particle."""
 
-    def __init__(self, x: float, y: float, max_y: int):
+
+
+class ParticleType(Enum):
+    CONFETTI = 0
+    SPARK = 1
+    OFFSET_SMOKE = 2
+
+class Particle:
+    """A generic particle for visual effects."""
+    
+    def __init__(self, x: float, y: float, p_type: ParticleType, color: Tuple[int, int, int]):
         self.x = x
         self.y = y
-        self.max_y = max_y
-        self.vx = random.uniform(-5, 5)
-        self.vy = random.uniform(-12, -6)
-        self.color = random.choice(CONFETTI_COLORS)
-        self.size = random.randint(6, 12)
-        self.rotation = random.uniform(0, 360)
-        self.rotation_speed = random.uniform(-10, 10)
-        self.gravity = 0.3
+        self.type = p_type
+        self.color = color
         self.lifetime = 1.0
-        self.decay = random.uniform(0.005, 0.015)
+        
+        if p_type == ParticleType.CONFETTI:
+            self.vx = random.uniform(-5, 5)
+            self.vy = random.uniform(-12, -6)
+            self.size = random.randint(6, 12)
+            self.gravity = 0.3
+            self.decay = random.uniform(0.005, 0.015)
+            self.rotation = random.uniform(0, 360)
+            self.rotation_speed = random.uniform(-10, 10)
+        elif p_type == ParticleType.SPARK:
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(2, 6)
+            self.vx = math.cos(angle) * speed
+            self.vy = math.sin(angle) * speed
+            self.size = random.randint(2, 5)
+            self.gravity = 0.1
+            self.decay = random.uniform(0.02, 0.05)
+            # Add slight random drag
+            self.drag = 0.9
+            self.rotation = 0
+            self.rotation_speed = 0
+        elif p_type == ParticleType.OFFSET_SMOKE:
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(0.5, 2)
+            self.vx = math.cos(angle) * speed
+            self.vy = math.sin(angle) * speed
+            self.size = random.randint(4, 8)
+            self.gravity = -0.05 # Float up
+            self.decay = random.uniform(0.01, 0.03)
+            self.rotation = random.uniform(0, 360)
+            self.rotation_speed = random.uniform(-2, 2)
 
     def update(self):
-        """Update particle position and state."""
+        """Update particle state."""
         self.x += self.vx
-        self.vy += self.gravity
         self.y += self.vy
-        self.vx *= 0.99  # Air resistance
+        self.vy += self.gravity
+        
+        if self.type == ParticleType.CONFETTI:
+            self.vx *= 0.99
+        elif self.type == ParticleType.SPARK:
+            self.vx *= self.drag
+            self.vy *= self.drag
+            
         self.rotation += self.rotation_speed
         self.lifetime -= self.decay
 
     def draw(self, screen: pygame.Surface):
-        """Draw the confetti particle."""
+        """Draw the particle."""
         if self.lifetime <= 0:
             return
 
         alpha = int(255 * self.lifetime)
-        # Create a surface for the confetti piece
-        surf = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
-        color_with_alpha = (*self.color, alpha)
-        pygame.draw.rect(surf, color_with_alpha, (0, 0, self.size, self.size // 2))
-
-        # Rotate the surface
-        rotated = pygame.transform.rotate(surf, self.rotation)
-        rect = rotated.get_rect(center=(int(self.x), int(self.y)))
-        screen.blit(rotated, rect)
+        
+        if self.type == ParticleType.SPARK:
+            # Add glow
+            surf = pygame.Surface((self.size * 4, self.size * 4), pygame.SRCALPHA)
+            # Draw glow
+            pygame.draw.circle(surf, (*self.color, alpha // 3), (self.size*2, self.size*2), self.size*2)
+            # Draw core
+            pygame.draw.circle(surf, (*self.color, alpha), (self.size*2, self.size*2), self.size)
+            screen.blit(surf, (int(self.x - self.size*2), int(self.y - self.size*2)))
+        else:
+            # Standard rect particle
+            surf = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
+            if len(self.color) == 4:
+                # Handle color with alpha already
+                c = self.color
+                color_with_alpha = (c[0], c[1], c[2], min(c[3], alpha))
+            else:
+                color_with_alpha = (*self.color, alpha)
+                
+            pygame.draw.rect(surf, color_with_alpha, (0, 0, self.size, self.size))
+            rotated = pygame.transform.rotate(surf, self.rotation)
+            rect = rotated.get_rect(center=(int(self.x), int(self.y)))
+            screen.blit(rotated, rect)
 
     def is_alive(self) -> bool:
-        """Check if particle is still visible."""
-        return self.lifetime > 0 and self.y < self.max_y + 50
+        return self.lifetime > 0
 
-
-class ConfettiSystem:
-    """Manages confetti particle effects."""
+class ParticleSystem:
+    """Manages all particle effects."""
 
     def __init__(self):
-        self.particles: List[ConfettiParticle] = []
-        self.active = False
+        self.particles: List[Particle] = []
 
-    def trigger(self, window_width: int, window_height: int):
+    def trigger_confetti(self, window_width: int, window_height: int):
         """Trigger a confetti explosion."""
-        self.active = True
-        # Create particles from multiple points across the top
         for _ in range(150):
             x = random.randint(0, window_width)
             y = random.randint(-50, 50)
-            self.particles.append(ConfettiParticle(x, y, window_height))
-
-        # Add some from the sides
+            self.particles.append(Particle(x, y, ParticleType.CONFETTI, random.choice(CONFETTI_COLORS)))
+            
         for _ in range(50):
-            x = random.choice([0, window_width])
-            y = random.randint(0, window_height // 2)
-            p = ConfettiParticle(x, y, window_height)
-            if x == 0:
-                p.vx = abs(p.vx)
-            else:
-                p.vx = -abs(p.vx)
-            self.particles.append(p)
+             x = random.choice([0, window_width])
+             y = random.randint(0, window_height // 2)
+             p = Particle(x, y, ParticleType.CONFETTI, random.choice(CONFETTI_COLORS))
+             if x == 0: p.vx = abs(p.vx)
+             else: p.vx = -abs(p.vx)
+             self.particles.append(p)
+
+    # Alias for backward compatibility if needed, but we'll update calls
+    def trigger(self, window_width: int, window_height: int):
+        self.trigger_confetti(window_width, window_height)
+
+    def trigger_move_effect(self, x: int, y: int, color: Tuple[int, int, int]):
+        """Trigger effect for a move."""
+        # Sparks
+        for _ in range(12):
+            self.particles.append(Particle(x, y, ParticleType.SPARK, color))
+        # Smoke/Dust
+        for _ in range(5):
+             self.particles.append(Particle(x, y, ParticleType.OFFSET_SMOKE, (200, 200, 200)))
 
     def update(self):
-        """Update all particles."""
-        for particle in self.particles:
-            particle.update()
-        # Remove dead particles
+        for p in self.particles:
+            p.update()
         self.particles = [p for p in self.particles if p.is_alive()]
-        if not self.particles:
-            self.active = False
 
     def draw(self, screen: pygame.Surface):
-        """Draw all particles."""
-        for particle in self.particles:
-            particle.draw(screen)
+        for p in self.particles:
+            p.draw(screen)
 
 
 class SplashScreen:
@@ -400,6 +486,46 @@ class SplashScreen:
         # Text surfaces
         self.title_text = "TicTacToe Ultimate"
         self.subtitle_text = "by DaughterNFather Games"
+        
+        # Dynamic fonts and layout
+        self.title_font = FONT_TITLE
+        self.subtitle_font = FONT_SUBTITLE
+        self.frame_rect = pygame.Rect(0, 0, 100, 100)
+        self._update_layout()
+
+    def _update_layout(self):
+        """Recalculate layout and font sizes based on screen size."""
+        width, height = self.screen.get_size()
+        
+        # Calculate frame dimensions
+        frame_width = min(420, width - 40)
+        # Ensure minimum width to avoid crash
+        frame_width = max(100, frame_width) 
+        frame_height = 160
+        
+        center_x = width // 2
+        center_y = height // 2 - 30
+        
+        self.frame_rect = pygame.Rect(
+            center_x - frame_width // 2,
+            center_y - frame_height // 2,
+            frame_width,
+            frame_height
+        )
+        
+        # Helper to find fitting font
+        def get_fitting_font(text, base_size, max_width, bold=True):
+            size = base_size
+            font = get_font(size, bold=bold)
+            while font.size(text)[0] > max_width and size > 10:
+                size -= 2
+                font = get_font(size, bold=bold)
+            return font
+            
+        # Fit title (allow 20px padding)
+        self.title_font = get_fitting_font(self.title_text, 48, frame_width - 20, bold=True)
+        # Fit subtitle
+        self.subtitle_font = get_fitting_font(self.subtitle_text, 22, frame_width - 20, bold=False)
 
     def run(self):
         """Run the splash screen animation."""
@@ -424,6 +550,7 @@ class SplashScreen:
                     self.screen = pygame.display.set_mode(
                         (event.w, event.h), pygame.RESIZABLE
                     )
+                    self._update_layout()
 
             # Update animation
             self.phase_timer += dt
@@ -490,14 +617,13 @@ class SplashScreen:
 
         # Draw stamp frame/border with glow
         if self.stamp_phase >= 1:
-            frame_width = min(420, width - 40)
-            frame_height = 160
-            frame_rect = pygame.Rect(
-                center_x - frame_width // 2,
-                center_y - frame_height // 2,
-                frame_width,
-                frame_height
-            )
+            frame_rect = self.frame_rect.copy()
+            # Apply shake
+            frame_rect.x += self.shake_offset[0]
+            frame_rect.y += self.shake_offset[1]
+            
+            frame_width = frame_rect.width
+            frame_height = frame_rect.height
 
             # Outer glow
             glow_surf = pygame.Surface((frame_width + 20, frame_height + 20), pygame.SRCALPHA)
@@ -510,9 +636,11 @@ class SplashScreen:
             # Inner frame
             inner_rect = frame_rect.inflate(-16, -16)
             pygame.draw.rect(self.screen, GOLD, inner_rect, 1, border_radius=2)
+            
+            center_x, center_y = frame_rect.center
 
         # Draw title text with stamp effect and glow
-        title_surf = FONT_TITLE.render(self.title_text, True, GOLD)
+        title_surf = self.title_font.render(self.title_text, True, GOLD)
 
         if self.stamp_scale > 1.0:
             # Scale the text
@@ -531,7 +659,7 @@ class SplashScreen:
 
         # Draw text glow when stamp has landed
         if self.stamp_phase >= 2:
-            glow_surf = FONT_TITLE.render(self.title_text, True, (*GOLD[:3],))
+            glow_surf = self.title_font.render(self.title_text, True, (*GOLD[:3],))
             glow_surf.set_alpha(60)
             for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
                 glow_rect = glow_surf.get_rect(center=(center_x + offset[0], center_y - 15 + offset[1]))
@@ -542,7 +670,7 @@ class SplashScreen:
         # Draw subtitle after stamp lands
         if self.stamp_phase >= 3:
             alpha = min(255, int(self.phase_timer * 500))
-            subtitle_surf = FONT_SUBTITLE.render(self.subtitle_text, True, TEXT_LIGHT)
+            subtitle_surf = self.subtitle_font.render(self.subtitle_text, True, TEXT_LIGHT)
             subtitle_surf.set_alpha(alpha)
             subtitle_rect = subtitle_surf.get_rect(center=(center_x, center_y + 40))
             self.screen.blit(subtitle_surf, subtitle_rect)
@@ -1067,7 +1195,8 @@ class TutorialScreen:
         self.demo_sub_board_size = 0
 
         # Confetti for completion
-        self.confetti = ConfettiSystem()
+        # Particles for completion
+        self.particle_system = ParticleSystem()
 
     def _needs_fresh_board(self, step: TutorialStep) -> bool:
         """Check if this step needs a fresh board setup (not preserved from previous)."""
@@ -1379,8 +1508,8 @@ class TutorialScreen:
                     self.animation_timer = 0
                     self.board_highlight_index = (self.board_highlight_index + 1) % 9
 
-            # Update confetti
-            self.confetti.update()
+            # Update particles
+            self.particle_system.update()
 
             self._draw()
 
@@ -1674,6 +1803,10 @@ class TutorialScreen:
 
         # Draw step indicator
         self._draw_step_indicator(width, height)
+
+        # Draw particles (confetti)
+        if self.current_step == TutorialStep.COMPLETE:
+            self.particle_system.draw(self.screen)
 
         pygame.display.flip()
 
@@ -2226,8 +2359,13 @@ class AIPlayer:
         self.opponent_symbol = 'X' if player_symbol == 'O' else 'O'
         self.tt = {}  # Transposition table for caching evaluations
 
-    def get_move(self, game: UltimateTicTacToe) -> Optional[Tuple[int, int, int, int]]:
-        """Get the AI's next move based on difficulty."""
+    def get_move(self, game: UltimateTicTacToe, callback=None) -> Optional[Tuple[int, int, int, int]]:
+        """Get the AI's next move based on difficulty.
+        
+        Args:
+            game: The game state
+            callback: Optional function(move_tuple) called when evaluating a top-level move (for visualization)
+        """
         if game.game_over or game.current_player != self.player_symbol:
             return None
 
@@ -2240,7 +2378,7 @@ class AIPlayer:
         elif self.difficulty == Difficulty.MEDIUM:
             return self._medium_move(game, valid_moves)
         else:  # BIG_BRAIN
-            return self._bigbrain_move(game, valid_moves)
+            return self._bigbrain_move(game, valid_moves, callback)
 
     def _easy_move(self, valid_moves: List[Tuple[int, int, int, int]]) -> Tuple[int, int, int, int]:
         """Easy AI: Random valid move."""
@@ -2365,7 +2503,8 @@ class AIPlayer:
         return board, macro_board, game.active_board
 
     def _bigbrain_move(self, game: UltimateTicTacToe,
-                       valid_moves: List[Tuple[int, int, int, int]]) -> Tuple[int, int, int, int]:
+                       valid_moves: List[Tuple[int, int, int, int]],
+                       callback=None) -> Tuple[int, int, int, int]:
         """Big Brain AI: Minimax with alpha-beta pruning (Optimized with Numpy)."""
         board, macro_board, active_board = self._to_numpy(game)
         
@@ -2387,6 +2526,12 @@ class AIPlayer:
         valid_moves.sort(key=move_score, reverse=True)
 
         for br, bc, cr, cc in valid_moves:
+            # Visualization callback
+            if callback:
+                callback((br, bc, cr, cc))
+                import time
+                time.sleep(0.1)  # Short delay to make thinking visible
+
             new_board = board.copy()
             new_macro = macro_board.copy()
             
@@ -2529,8 +2674,17 @@ class GameRenderer:
         self.game_mode: Optional[GameMode] = None
         self.difficulty: Optional[Difficulty] = None
         self.home_button_hovered = False
+        self.move_animations = {}  # (br, bc, cr, cc) -> start_time
+        
+        # Glass Brain visualization state
+        self.thinking_move = None  # (br, bc, cr, cc)
+        
         self._update_dimensions()
         self._create_home_button()
+
+    def notify_move(self, br: int, bc: int, cr: int, cc: int):
+        """Notify renderer of a new move to trigger animation."""
+        self.move_animations[(br, bc, cr, cc)] = pygame.time.get_ticks()
 
     def set_game_info(self, game_mode: GameMode, difficulty: Optional[Difficulty]):
         """Set the game mode and difficulty for display."""
@@ -2557,8 +2711,8 @@ class GameRenderer:
         self.window_height = height
 
         # Calculate board size to fit in window (leave room for status bar)
-        status_height = DEFAULT_STATUS_HEIGHT
-        available_size = min(width, height - status_height)
+        self.status_height = DEFAULT_STATUS_HEIGHT
+        available_size = min(width, height - self.status_height)
 
         self.margin = max(10, available_size // 42)  # Scale margin with size
         self.board_size = available_size - (2 * self.margin)
@@ -2577,7 +2731,7 @@ class GameRenderer:
         self.screen = screen
         self._update_dimensions()
 
-    def draw(self, game: UltimateTicTacToe, confetti: ConfettiSystem):
+    def draw(self, game: UltimateTicTacToe, particle_system: ParticleSystem):
         """Draw the entire game state."""
         self.screen.fill(BACKGROUND)
 
@@ -2592,8 +2746,8 @@ class GameRenderer:
         # Draw game status (includes home button)
         self._draw_status(game)
 
-        # Draw confetti on top
-        confetti.draw(self.screen)
+        # Draw particles on top
+        particle_system.draw(self.screen)
 
         # Draw "Broke Even" text for draws
         if game.is_draw():
@@ -2605,8 +2759,8 @@ class GameRenderer:
         self.broke_even_alpha = min(255, self.broke_even_alpha + 8)
         self.broke_even_scale = min(1.0, self.broke_even_scale + 0.03)
 
-        # Create text surface
-        text_surf = FONT_BROKE_EVEN.render("BROKE EVEN", True, GRAY)
+    # Create text surface
+        text_surf = FONT_BROKE_EVEN.render("BROKE EVEN", True, TEXT_DARK)
 
         # Scale if needed
         if self.broke_even_scale < 1.0:
@@ -2619,7 +2773,9 @@ class GameRenderer:
         # Draw semi-transparent background
         bg_rect = pygame.Rect(0, self.window_height // 2 - 50, self.window_width, 100)
         bg_surf = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
-        bg_surf.fill((255, 255, 255, int(200 * (self.broke_even_alpha / 255))))
+        # Use theme-aware background color
+        bg_color = (*BACKGROUND, int(230 * (self.broke_even_alpha / 255)))
+        bg_surf.fill(bg_color)
         self.screen.blit(bg_surf, bg_rect)
 
         # Draw text centered
@@ -2630,6 +2786,7 @@ class GameRenderer:
         """Reset animation states."""
         self.broke_even_alpha = 0
         self.broke_even_scale = 0.5
+        self.move_animations.clear()
 
     def _draw_sub_board(self, game: UltimateTicTacToe, board_row: int, board_col: int):
         """Draw a single sub-board."""
@@ -2653,8 +2810,9 @@ class GameRenderer:
             surf.fill(highlight_color)
             self.screen.blit(surf, board_rect)
             
-            # Gold border for active board
-            pygame.draw.rect(self.screen, GOLD, board_rect, width=3, border_radius=8)
+            # Gold border for active board with pulse
+            pulse = int(abs(math.sin(pygame.time.get_ticks() / 300)) * 2) + 1
+            pygame.draw.rect(self.screen, GOLD, board_rect, width=3 + pulse, border_radius=8)
         else:
             # Inactive board background
             pygame.draw.rect(self.screen, LIGHT_GRAY, board_rect, border_radius=8)
@@ -2695,7 +2853,21 @@ class GameRenderer:
                     if player:
                         cell_x = base_x + cell_col * self.cell_size
                         cell_y = base_y + cell_row * self.cell_size
-                        self._draw_symbol(player, cell_x, cell_y, self.cell_size)
+                        cell_y = base_y + cell_row * self.cell_size
+                        self._draw_symbol(player, cell_x, cell_y, self.cell_size, coords=(board_row, board_col, cell_row, cell_col))
+
+        # Draw Glass Brain thinking highlight
+        if self.thinking_move:
+            t_br, t_bc, t_cr, t_cc = self.thinking_move
+            if t_br == board_row and t_bc == board_col:
+                cell_x = base_x + t_cc * self.cell_size
+                cell_y = base_y + t_cr * self.cell_size
+                
+                # Pulse alpha
+                alpha = int(100 + 50 * math.sin(pygame.time.get_ticks() / 100))
+                s = pygame.Surface((self.cell_size, self.cell_size), pygame.SRCALPHA)
+                s.fill((*RED, alpha))  # Red tint for thinking
+                self.screen.blit(s, (cell_x, cell_y))
 
         # Draw Hover Effect
         if game.is_valid_board(board_row, board_col) and not sub_board.winner:
@@ -2733,8 +2905,29 @@ class GameRenderer:
             end_x = self.board_offset_x + self.board_size
             pygame.draw.line(self.screen, BLACK, (start_x, y), (end_x, y), line_width)
 
-    def _draw_symbol(self, player: str, x: int, y: int, size: int):
+    def _draw_symbol(self, player: str, x: int, y: int, size: int, coords: Tuple[int, int, int, int] = None):
         """Draw X or O in a cell. Style depends on IS_DARK_MODE."""
+        
+        # Handle animation
+        scale = 1.0
+        if coords in self.move_animations:
+            elapsed = pygame.time.get_ticks() - self.move_animations[coords]
+            duration = 400  # ms
+            if elapsed < duration:
+                t = elapsed / duration
+                # Elastic out easing
+                scale = math.sin(-13 * (t + 1) * math.pi / 2) * math.pow(2, -10 * t) + 1
+            else:
+                del self.move_animations[coords]
+        
+        # Apply scale if needed
+        draw_size = int(size * scale)
+        # Center adjustment
+        offset = (size - draw_size) // 2
+        x += offset
+        y += offset
+        size = draw_size
+
         padding = int(size * 0.25)
         
         if not IS_DARK_MODE:
@@ -3073,6 +3266,11 @@ def main():
     )
     pygame.display.set_caption("Ultimate Tic Tac Toe")
 
+    # AI Threading state
+    ai_thread = None
+    ai_result_container = [None]
+    ai_move_start_time = 0
+
     # Initialize sound manager
     sound_manager = SoundManager()
     clock = pygame.time.Clock()
@@ -3116,7 +3314,33 @@ def main():
         game = UltimateTicTacToe()
         renderer = GameRenderer(screen)
         renderer.set_game_info(game_mode, difficulty)
-        confetti = ConfettiSystem()
+        particle_system = ParticleSystem()
+        
+        def trigger_move_effects(br, bc, cr, cc):
+            """Helper to trigger vfx/sfx for a move."""
+            # Calculate screen position
+            cx = renderer.board_offset_x + bc * renderer.sub_board_size + cc * renderer.cell_size + renderer.cell_size // 2
+            cy = renderer.board_offset_y + br * renderer.sub_board_size + cr * renderer.cell_size + renderer.cell_size // 2
+            
+            # 1. Determine player color
+            moved_player = game.current_player
+            if not game.game_over:
+                 moved_player = 'O' if game.current_player == 'X' else 'X'
+                 
+            color = PLAYER_X_COLOR if moved_player == 'X' else PLAYER_O_COLOR
+            
+            # 2. Particles
+            particle_system.trigger_move_effect(cx, cy, color)
+            
+            # 3. Animation
+            renderer.notify_move(br, bc, cr, cc)
+            
+            # 4. Sound with Pan/Var
+            width = screen.get_width()
+            pan = (cx / width) * 2 - 1
+            # Clamp in case of weirdness
+            pan = max(-1.0, min(1.0, pan))
+            sound_manager.play('click', pan=pan, volume_var=True)
 
         # AI move timing
         ai_move_delay = 500  # milliseconds delay before AI moves
@@ -3148,9 +3372,6 @@ def main():
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:  # Left click
-                        # Play click sound on every click
-                        sound_manager.play('click')
-
                         # Check if home button was clicked
                         if renderer.check_home_button_click(event.pos):
                             game_running = False
@@ -3163,15 +3384,16 @@ def main():
                             if coords:
                                 board_row, board_col, cell_row, cell_col = coords
                                 if game.make_move(board_row, board_col, cell_row, cell_col):
+                                    trigger_move_effects(board_row, board_col, cell_row, cell_col)
                                     # If 1 player mode and game not over, trigger AI turn
                                     if ai_player and not game.game_over:
                                         ai_waiting = True
-                                        ai_move_timer = 0
+                                        ai_move_start_time = pygame.time.get_ticks()
 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r:
                         game = UltimateTicTacToe()
-                        confetti = ConfettiSystem()
+                        particle_system = ParticleSystem()
                         renderer.reset_animations()
                         ai_waiting = False
                         ai_move_timer = 0
@@ -3194,31 +3416,58 @@ def main():
                         pass
 
             # Handle AI move with delay
-            if ai_player and ai_waiting and not game.game_over:
-                ai_move_timer += dt
-                if ai_move_timer >= ai_move_delay:
-                    ai_move = ai_player.get_move(game)
-                    if ai_move:
-                        game.make_move(*ai_move)
-                        sound_manager.play('click')
-                    ai_waiting = False
-                    ai_move_timer = 0
+            # Handle AI turn (Threaded for Glass Brain)
+            if ai_waiting and not game.game_over and not return_to_home:
+                current_time = pygame.time.get_ticks()
+                if current_time - ai_move_start_time > 500:  # Minimum delay before starting
+                    
+                    if ai_thread is None:
+                        # Start AI in a thread
+                        ai_result_container = [None]
+                        
+                        def ai_task():
+                            # Callback updates renderer state directly
+                            def visualization_callback(move_tuple):
+                                renderer.thinking_move = move_tuple
+                                
+                            try:
+                                move = ai_player.get_move(game, callback=visualization_callback)
+                                ai_result_container[0] = move
+                            except Exception as e:
+                                print(f"AI Thread Error: {e}")
+                            
+                        ai_thread = threading.Thread(target=ai_task)
+                        ai_thread.start()
+                    
+                    elif not ai_thread.is_alive():
+                        # Thread finished
+                        ai_thread.join()
+                        move = ai_result_container[0]
+                        renderer.thinking_move = None # Clear thinking visualization
+                        
+                        if move:
+                            br, bc, cr, cc = move
+                            if game.make_move(br, bc, cr, cc):
+                                trigger_move_effects(br, bc, cr, cc)
+                        
+                        ai_waiting = False
+                        ai_thread = None
 
             # Check for game end triggers
             if game.just_ended:
                 game.just_ended = False
                 if game.winner:
                     width, height = screen.get_size()
-                    confetti.trigger(width, height)
+                    particle_system.trigger_confetti(width, height)
                     sound_manager.play('win')
                 else:
                     sound_manager.play('sad')
 
-            # Update confetti
-            confetti.update()
+            # Update particles
+            particle_system.update()
 
             # Draw everything
-            renderer.draw(game, confetti)
+            renderer.draw(game, particle_system)
             pygame.display.flip()
 
         # If not returning to home, exit the app
